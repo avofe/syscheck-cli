@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Сборка
+build/
+dist/
+*.spec.bak
+
+# Тесты
+.pytest_cache/
+.coverage
+
+# OS / редакторы
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
