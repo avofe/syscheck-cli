@@ -50,7 +50,7 @@ pip install -e .        # запуск: python -m syscheck
 ```bash
 pip install -e .[dev]
 python -m build                       # wheel + sdist в dist/
-twine upload dist/*                   # нужен аккаунт на pypi.org, токен
+twine upload dist/*.whl dist/*.tar.gz # только py-артефакты (exe не трогаем)
 ```
 
 ## Команды
@@ -71,22 +71,31 @@ twine upload dist/*                   # нужен аккаунт на pypi.org,
 
 ## Интерактивный режим (TUI)
 
-Запуск `syscheck` без аргументов открывает интерактивную оболочку:
-живой дашборд сверху (обновляется каждые 2 с) и строка ввода:
+Запуск `syscheck` без аргументов открывает живой дашборд (в духе btop/WinMon),
+который обновляется каждые 2 секунды:
 
 ```
-> cpu          # нагрузка процессора
-> ram          # память
-> disk         # диски
-> net 8.8.8.8  # сеть и пинг
-> proc         # топ процессов
-> temp         # температуры
-> sys          # система
-> all          # всё сразу
-> help         # помощь
-> clear        # очистить
-> exit / ctrl+c # выйти
+CPU                  GPU
+ MEMORY               PROCESSES
+ [████░░░░] 45% [P]      PID PROCESS...
+ TOTAL 15.3 GB           ...
+ USED   6.9 GB
+ STORAGE  NETWORK  BATTERY
+ ─────────────────────────────────────
+ ❯ ram
+ v0.2.0 · 1-5 toggle panels · ctrl+p palette
 ```
+
+- **7 панелей**: CPU, MEMORY, GPU, STORAGE, NETWORK, BATTERY, PROCESSES
+- **Тогглы панелей**: в набраном тексте введи цифру и Enter — `1` CPU, `2` GPU,
+  `3` NETWORK, `4` BATTERY, `5` PROCESSES (`0` возвращает всё)
+- **Палитра команд**: `Ctrl+P` — фильтруй и запускай команды, `↑↓` выбор, `Enter` запуск, `Esc` закрыть
+- **Инпут внизу** — обычные команды как в CLI (`ram`, `proc`, `net 8.8.8.8` …)
+- **Процессы**: стрелками вверх/вниз выбирай строку, `Enter` — карточка процесса;
+  в карточке `s` — сортировка CPU/RAM, `f` — фильтр по имени, `Esc` — назад
+- Выход: `exit`, `ctrl+c` или `q`
+
+Команды работают и в TUI, и как обычный CLI (см. таблицу выше).
 
 ## Безопасность `!shell`
 
@@ -102,6 +111,82 @@ syscheck --enable-shell
 - Каждое выполнение записывается в audit-лог:
   `~/.syscheck/shell_audit.log`.
 - Настройки хранятся в `~/.syscheck/config.json`.
+
+---
+
+## Частые вопросы
+
+### Windows SmartScreen «защитил ваш компьютер»
+Стандартная реакция при запуске неподписанного `.exe` из интернета.
+Нажми «Подробнее» → «Выполнить в любом случае». Это безопасно:
+код полностью прозрачен на [GitHub](https://github.com/avofe/syscheck-cli).
+
+### Антивирус ругается на exe
+PyInstaller-бинари иногда дают ложные срабатывания антивирусов.
+Решение: исключить `syscheck.exe` из сканирования, либо ставить
+через PyPI (`pip install syscheck-cli`) — тогда антивирус не цепляет.
+
+### Запускать в Windows Terminal, а не в cmd
+Текстовый интерфейс (TUI) использует unicode и цвета, которые
+в старом консоле Windows отображаются корректно только в **Windows Terminal**.
+Windows Terminal уже предустановлен в Windows 10/11.
+
+### Почему exe только для x64
+Билд собирается на GitHub Actions с `windows-latest` (x86_64).
+Для ARM64 Windows нет отдельного бинарника; можно запустить
+через Python: `pip install syscheck-cli`.
+
+---
+
+## Разработчику
+
+### Запуск из исходников
+
+```bash
+git clone https://github.com/avofe/syscheck-cli
+cd syscheck-cli
+pip install -e .[dev]       # dev включает pytest, build, twine, pyinstaller
+pytest                       # запуск тестов
+python -m syscheck           # TUI
+python -m syscheck cpu       # CLI
+```
+
+### Тесты
+
+```bash
+pytest               # все тесты (30+)
+pytest -v            # подробно
+```
+
+### Сборка exe
+
+```bash
+pip install pyinstaller>=6.0.0
+python -m PyInstaller --clean --noconfirm syscheck.spec
+# → dist\syscheck.exe (onefile, ~23 МБ)
+```
+
+### Публикация релиза
+
+```bash
+python -m build
+twine upload dist/*.whl dist/*.tar.gz
+```
+
+Или просто создай тег — GitHub Actions соберёт exe и опубликует всё автоматом:
+
+```bash
+git tag v0.3.0
+git push origin main --tags
+```
+
+(Потребуется секрет `PYPI_API_TOKEN` в настройках репозитория.)
+
+---
+
+## Лицензия
+
+MIT
 
 ## Плагины
 

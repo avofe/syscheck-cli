@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "syscheck-cli"
 version = "0.2.0"
 description = "CLI utility for system diagnostics"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
     "psutil>=5.9.0",

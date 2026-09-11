@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: test (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e .[dev]
+      - run: pytest -q
+
+  build:
+    name: binary (${{ matrix.asset }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bin: dist/syscheck.exe
+            asset: syscheck-windows-x86_64.exe
+          - os: ubuntu-latest
+            bin: dist/syscheck
+            asset: syscheck-linux-x86_64
+          - os: macos-13
+            bin: dist/syscheck
+            asset: syscheck-macos-x86_64
+          - os: macos-14
+            bin: dist/syscheck
+            asset: syscheck-macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: pip install "pyinstaller>=6.0"
+      - run: python -m PyInstaller --clean --noconfirm syscheck.spec
+      - name: rename artifact
+        shell: bash
+        run: |
+          mkdir -p dist-final
+          cp "${{ matrix.bin }}" "dist-final/${{ matrix.asset }}"
+          chmod +x "dist-final/${{ matrix.asset }}"
+      - name: attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-final/*
+          fail_on_unmatched_files: true
+
+  pypi:
+    name: publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - name: upload
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
