@@ -66,10 +66,10 @@ twine upload dist/*.whl dist/*.tar.gz # только py-артефакты (exe 
 | `syscheck ram` | Оперативная память, топ процессов по RAM |
 | `syscheck disk` | Диски: место, состояние, I/O |
 | `syscheck net --ping 8.8.8.8` | Сеть: интерфейсы, трафик, пинг |
-| `syscheck gpu` | Видеокарта (имя, VRAM; util/temp — если драйвер отдаёт) |
+| `syscheck gpu` | Видеокарта: имя + VRAM (used/total); на NVIDIA — ещё util и temp через `nvidia-smi` |
 | `syscheck battery` | Состояние батареи |
 | `syscheck proc --sort cpu` | Топ процессов (cpu/ram) |
-| `syscheck temp` | Температуры (если поддерживается) |
+| `syscheck temp` | Температуры: psutil, на Windows — дополнительно ACPI-зоны через WMI |
 | `syscheck sys` | ОС, uptime, hostname (+ summary) |
 | `syscheck all` | Вся диагностика сразу |
 | `syscheck watch` | Live-дашборд (обновление каждые N сек) |
@@ -99,6 +99,8 @@ CPU  MEMORY             PROCESSES
 - **7 панелей**: CPU, MEMORY, GPU, STORAGE, NETWORK, BATTERY, PROCESSES.
   По умолчанию видны **PROCESSES + CPU, MEMORY, STORAGE, NETWORK** —
   главный вопрос («кто ест процессор») видно сразу; GPU и BATTERY — по клавише.
+- **Тренды**: в панелях CPU, MEMORY, STORAGE и NETWORK живёт история
+  последних ~60 тиков (спарклайн ▁▂▃▄▅▆▇█) — видно, растёт нагрузка или падает.
 - **Тогглы панелей**: введи цифру и Enter — `1` CPU, `2` GPU, `3` NETWORK,
   `4` BATTERY, `5` PROCESSES, `0` показать все сразу.
 - **Палитра команд**: `Ctrl+P` — фильтруй и запускай команды, `↑↓` выбор, `Enter` запуск, `Esc` закрыть
@@ -298,9 +300,14 @@ curl -sSL https://raw.githubusercontent.com/avofe/syscheck-cli/main/scripts/inst
   cycle process sort with `t` (CPU → RAM → name), open the command
   palette with `Ctrl+P`, run any command from the input line.
 - **CLI commands**: `syscheck cpu|ram|gpu|battery|disk|net|proc|temp|sys|all|watch`
-  (each supports `--json`).
+  (each supports `--json`). GPU reports real utilization/temperature via
+  `nvidia-smi` on NVIDIA (VRAM used/total); otherwise name + total VRAM via
+  WMI. `temp` on Windows additionally probes ACPI thermal zones (WMI).
 - **JSON for scripts**: `all --json` — everything in one object, `watch --json`
   — one JSON line per tick, `watch --iterations N` — bounded monitoring.
+- **Live trends**: CPU/MEMORY/STORAGE/NETWORK panels keep ~60 ticks of
+  history and render sparklines; `watch` shows the same in the CPU/RAM/NET/disk
+  panels.
 - **Config file**: `~/.syscheck/config.toml` (TOML) for refresh interval,
   color thresholds and default panels.
 - **Process details**: browse the process table, `Enter` opens a detail card,

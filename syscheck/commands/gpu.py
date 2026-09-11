@@ -17,8 +17,11 @@ def show_gpu() -> None:
         return
 
     print_value("gpu", g["name"])
-    if g.get("vram_gb"):
-        print_value("vram", f"{g['vram_gb']:.1f} GB")
+    used, total = g.get("vram_used_gb"), g.get("vram_gb")
+    if used and total:
+        print_value("vram", f"{used:.1f} / {total:.1f} GB")
+    elif total:
+        print_value("vram", f"{total:.1f} GB")
     if g.get("util") is not None:
         print_value("util", f"{g['util']:.0f}%")
     if g.get("temp") is not None:

@@ -13,8 +13,8 @@ def show_temp() -> None:
     print_header("temperatures")
 
     if not data["available"]:
-        console.print("[dim]температуры не поддерживаются на этой системе через psutil[/]")
-        console.print("[dim](hwinfo / coretemp на windows)[/]")
+        console.print("[dim]температуры не поддерживаются на этой системе[/]")
+        console.print("[dim](нет сенсоров через psutil и нет ACPI-зон на Windows)[/]")
         return
 
     printed = False

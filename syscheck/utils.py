@@ -5,8 +5,9 @@
 значений, dim для подписей.
 """
 import os
+import sys
 from datetime import timedelta
-from typing import Optional
+from typing import List, Optional, Sequence
 
 from rich.console import Console
 
@@ -113,3 +114,32 @@ def print_error(msg: str):
 def print_value(label: str, value: str, colour: Optional[str] = None):
     """Печатает пару, где значение подсвечено (по умолчанию cyan)."""
     console.print(kv(label, f"[{colour or 'cyan'}]{value}[/]"))
+
+
+_SPARK_BLOCKS = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"  # ▁▂▃▄▅▆▇█
+_SPARK_ASCII = " .:-=+*#@"
+
+
+def supports_block_chars() -> bool:
+    """Может ли стандартный вывод CLI показать блочные символы (UTF-8)."""
+    enc = (getattr(sys.stdout, "encoding", "") or "").lower()
+    return "utf" in enc or enc == "cp65001"
+
+
+def sparkline(values: Sequence[float], width: int = 20, ascii: bool = False) -> str:
+    """ASCII-спарклайн последних `width` значений: min→max по шкале блоков.
+
+    `ascii=True` — для терминалов без блочных символов (cp1251/866).
+    Плоские данные дают одинаковые символы, пустая история — пробелы.
+    """
+    if not values:
+        return " " * width
+    chars = _SPARK_ASCII if ascii else _SPARK_BLOCKS
+    data = list(values)[-width:]
+    lo, hi = min(data), max(data)
+    span = hi - lo or 1e-9
+    out = []
+    for v in data:
+        idx = int((v - lo) / span * (len(chars) - 1))
+        out.append(chars[idx])
+    return "".join(out)

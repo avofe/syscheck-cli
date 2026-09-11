@@ -13,6 +13,8 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
+from collections import namedtuple
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -21,6 +23,26 @@ import psutil
 
 # --- CPU: неблокирующий расчёт дельт по собственным выборкам -------------
 _cpu_prev: Optional[Tuple[float, Any, Any]] = None
+
+
+# --- короткая история для спарклайнов ------------------------------------
+_cpu_hist: deque = deque(maxlen=60)
+_net_down_hist: deque = deque(maxlen=60)
+_net_up_hist: deque = deque(maxlen=60)
+_disk_read_hist: deque = deque(maxlen=60)
+_disk_write_hist: deque = deque(maxlen=60)
+
+
+def cpu_history() -> List[float]:
+    return list(_cpu_hist)
+
+
+def net_history() -> Dict[str, List[float]]:
+    return {"down": list(_net_down_hist), "up": list(_net_up_hist)}
+
+
+def disk_history() -> Dict[str, List[float]]:
+    return {"read": list(_disk_read_hist), "write": list(_disk_write_hist)}
 
 
 def _cpu_percent_from_times(a, b) -> float:
@@ -51,7 +73,9 @@ def cpu_delta() -> Optional[Tuple[float, List[float]]]:
     dt = now - t0
     if dt <= 0.05:
         return None
-    return _cpu_percent_from_times(o0, overall), [
+    overall_pct = _cpu_percent_from_times(o0, overall)
+    _cpu_hist.append(overall_pct)
+    return overall_pct, [
         _cpu_percent_from_times(x0, x) for x0, x in zip(p0, per)
     ]
 
@@ -300,13 +324,63 @@ def processes(sort_by: str = "cpu", limit: int = 15) -> List[Dict[str, Any]]:
 
 
 def temperatures() -> Dict[str, Any]:
-    if not hasattr(psutil, "sensors_temperatures"):
-        return {"available": False, "temps": {}}
+    """Температуры: psutil, при пустоте на Windows — ACPI-зоны через WMI.
+
+    Возвращает {"available","temps","source"}; каждая запись совместима
+    с psutil.shwtemp (current/high/critical/label).
+    """
+    if hasattr(psutil, "sensors_temperatures"):
+        try:
+            temps = psutil.sensors_temperatures()
+            if temps:
+                return {"available": True, "temps": temps, "source": "psutil"}
+        except (AttributeError, Exception):
+            pass
+    if sys.platform == "win32":
+        wmi_temps = _windows_acpi_temps()
+        if wmi_temps is not None:
+            return {"available": bool(wmi_temps), "temps": wmi_temps, "source": "wmi"}
+    return {"available": False, "temps": {}, "source": None}
+
+
+_ShwTemp = namedtuple("ShwTemp", ("current", "high", "critical", "label"))
+
+
+def _windows_acpi_temps() -> Optional[Dict[str, List[Any]]]:
+    """ACPI-термозоны Windows: MSAcpi_ThermalZoneTemperature (долго ≠ точно).
+
+    Значение в децикельвинах, грубое (часто «застрявшая» константа на
+    многих ноутбуках), но это единственное, что отдаёт Windows без
+    чужого кода. None, если WMI недоступен/пуст.
+    """
     try:
-        temps = psutil.sensors_temperatures()
-    except AttributeError:
-        return {"available": False, "temps": {}}
-    return {"available": bool(temps), "temps": temps}
+        out = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                "Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature |"
+                " Select-Object -ExpandProperty CurrentTemperature",
+            ],
+            capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (subprocess.TimeoutExpired, OSError, Exception):
+        return None
+    raw = (out.stdout or "").strip()
+    if out.returncode != 0 or not raw:
+        return None
+    entries = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or not re.fullmatch(r"\d+(\.\d+)?", line):
+            continue
+        try:
+            celsius = round(float(line) / 10.0 - 273.15, 1)
+        except (ValueError, TypeError):
+            continue
+        entries.append(_ShwTemp(celsius, None, None, "ACPI zone"))
+    if not entries:
+        return None
+    return {"acpi": entries}
 
 
 def system_info() -> Dict[str, Any]:
@@ -372,9 +446,13 @@ def disk_io_speeds() -> Dict[str, float]:
     t0, r0, w0 = _io_prev
     _io_prev = (now, io.read_bytes, io.write_bytes)
     dt = max(now - t0, 1e-6)
+    read_speed = max(io.read_bytes - r0, 0) / dt
+    write_speed = max(io.write_bytes - w0, 0) / dt
+    _disk_read_hist.append(read_speed)
+    _disk_write_hist.append(write_speed)
     return {
-        "read": max(io.read_bytes - r0, 0) / dt,
-        "write": max(io.write_bytes - w0, 0) / dt,
+        "read": read_speed,
+        "write": write_speed,
     }
 
 
@@ -384,14 +462,75 @@ _GPU_TTL = 30.0
 
 
 def gpu_info() -> Dict[str, Any]:
-    """Имя/VRAM видеокарты через WMI. Утилизация/temp обычно недоступны.
+    """Данные видеокарты: nvidia-smi, иначе WMI (имя/VRAM).
 
-    Возвращает {"name","vram_gb","util","temp"}; недоступные поля — None.
+    Возвращает {"name","vram_gb","vram_used_gb","util","temp","source"};
+    недоступные поля — None. «Честно»: если драйвер не отдаёт загрузку
+    или температуру, поля остаются None, а не 0.
     """
     now = time.time()
     if _gpu_cache["data"] is not None and now - _gpu_cache["ts"] < _GPU_TTL:
         return _gpu_cache["data"]
-    data: Dict[str, Any] = {"name": None, "vram_gb": None, "util": None, "temp": None}
+    data: Dict[str, Any] = {
+        "name": None, "vram_gb": None, "vram_used_gb": None,
+        "util": None, "temp": None, "source": None,
+    }
+    nv = _nvidia_smi_info()
+    if nv:
+        data.update(nv)
+    else:
+        data.update(_wmi_gpu_info())
+    if not data["name"]:
+        data["name"], data["vram_gb"] = _wmic_gpu_name_vram()
+    _gpu_cache["data"], _gpu_cache["ts"] = data, now
+    return data
+
+
+def _nvidia_smi_info() -> Optional[Dict[str, Any]]:
+    """nvidia-smi (NVIDIA): имя, util, temp, VRAM used/total. None — нет nvidia."""
+    try:
+        out = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True, text=True, timeout=8,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (subprocess.TimeoutExpired, OSError, Exception):
+        return None
+    lines = (out.stdout or "").strip().splitlines()
+    if out.returncode != 0 or not lines:
+        return None
+    parts = [p.strip() for p in lines[0].split(",")]
+    if len(parts) < 5 or not parts[0]:
+        return None
+
+    def _opt(val: str, div: float = 1.0) -> Optional[float]:
+        if "N/A" in val.lower():
+            return None
+        try:
+            return round(float(val) / div, 1)
+        except (ValueError, TypeError):
+            return None
+
+    return {
+        "name": parts[0],
+        "util": _opt(parts[1]),
+        "temp": _opt(parts[2]),
+        "vram_used_gb": _opt(parts[3], 1024.0),
+        "vram_gb": _opt(parts[4], 1024.0),
+        "source": "nvidia-smi",
+    }
+
+
+def _wmi_gpu_info() -> Dict[str, Any]:
+    """Best-effort имя + VRAM через PowerShell WMI (AMD/Intel/NVIDIA без nvidia-smi)."""
+    data: Dict[str, Any] = {
+        "name": None, "vram_gb": None, "vram_used_gb": None,
+        "util": None, "temp": None, "source": "wmi",
+    }
     try:
         out = subprocess.run(
             [
@@ -408,25 +547,29 @@ def gpu_info() -> Dict[str, Any]:
             vram = info.get("AdapterRAM")
             if vram:
                 vram = float(vram) / (1024 ** 3)
-            data["name"] = info.get("Name")
+            data["name"] = info.get("Name") or data["name"]
             data["vram_gb"] = round(vram, 1) if vram else None
     except Exception:
         pass
-    if not data["name"]:
-        try:
-            out = subprocess.run(
-                ["wmic", "path", "win32_VideoController", "get", "name"],
-                capture_output=True, text=True, timeout=8,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            lines = [ln.strip() for ln in out.stdout.splitlines()
-                     if ln.strip() and ln.strip().lower() != "name"]
-            lines = [ln for ln in lines if "virtual" not in ln.lower()]
-            data["name"] = lines[0] if lines else None
-        except Exception:
-            pass
-    _gpu_cache["data"], _gpu_cache["ts"] = data, now
     return data
+
+
+def _wmic_gpu_name_vram() -> Tuple[Optional[str], Optional[float]]:
+    """Старый путь wmic, если PowerShell не отдал имя."""
+    name, vram = None, None
+    try:
+        out = subprocess.run(
+            ["wmic", "path", "win32_VideoController", "get", "name"],
+            capture_output=True, text=True, timeout=8,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        lines = [ln.strip() for ln in out.stdout.splitlines()
+                 if ln.strip() and ln.strip().lower() != "name"]
+        lines = [ln for ln in lines if "virtual" not in ln.lower()]
+        name = lines[0] if lines else None
+    except Exception:
+        pass
+    return name, vram
 
 
 def process_count() -> int:
@@ -488,9 +631,13 @@ def network_speeds() -> Dict[str, float]:
     t0, r0, s0 = _net_prev
     _net_prev = (now, io.bytes_recv, io.bytes_sent)
     dt = max(now - t0, 1e-6)
+    down_speed = max(io.bytes_recv - r0, 0) / dt
+    up_speed = max(io.bytes_sent - s0, 0) / dt
+    _net_down_hist.append(down_speed)
+    _net_up_hist.append(up_speed)
     return {
-        "down": max(io.bytes_recv - r0, 0) / dt,
-        "up": max(io.bytes_sent - s0, 0) / dt,
+        "down": down_speed,
+        "up": up_speed,
     }
 
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections import deque
 from datetime import datetime
 
 from rich.markup import escape
@@ -37,11 +38,13 @@ from syscheck import providers
 from syscheck import shellguard
 from syscheck import __version__
 from syscheck.palette import (
-    ACCENT, BG, BORDER, DANGER, DIM, MUTED, PANEL, TEXT, TRACK, WARN,
+    ACCENT, BG, BORDER, DANGER, DIM, MUTED, PANEL, TEXT, WARN,
     bar_pct, color_for,
 )
 from syscheck.screens import PaletteScreen, ProcessDetailsScreen
-from syscheck.utils import bytes_to_human, seconds_to_human, get_color_for_percent, make_bar
+from syscheck.utils import (
+    bytes_to_human, seconds_to_human, get_color_for_percent, make_bar, sparkline,
+)
 
 
 def _rate(v: float) -> str:
@@ -254,7 +257,7 @@ Screen {
         self._proc_sort = "cpu"
         self._proc_filter: str | None = None
         self._pending_proc: tuple | None = None
-        self._net_peak = {"down": 1.0, "up": 1.0}
+        self._mem_hist: deque = deque(maxlen=60)
 
     def compose(self) -> ComposeResult:
         table = ProcsTable(self, id="dt-procs", cursor_type="row", zebra_stripes=False)
@@ -394,11 +397,11 @@ Screen {
         self._dash = data
         try:
             self.query_one("#hints", Static).update("0\u20115 panels \u00b7 t sort \u00b7 ctrl+p palette")
-            self.query_one("#body-cpu", Static).update(self._cpu_body(data["cpu"], data["temp"]))
-            self.query_one("#body-ram", Static).update(self._mem_body(data["ram"]))
+            self.query_one("#body-cpu", Static).update(self._cpu_body(data["cpu"], data["temp"], data["cpu_hist"]))
+            self.query_one("#body-ram", Static).update(self._mem_body(data["ram"], data["mem_hist"]))
             self.query_one("#body-gpu", Static).update(self._gpu_body(data["gpu"]))
-            self.query_one("#body-disk", Static).update(self._disk_body(data["disk"], data["io"]))
-            self.query_one("#body-net", Static).update(self._net_body(data["net_rates"], data["conn"], data["net"]))
+            self.query_one("#body-disk", Static).update(self._disk_body(data["disk"], data["io"], data["disk_hist"]))
+            self.query_one("#body-net", Static).update(self._net_body(data["net_rates"], data["conn"], data["net"], data["net_hist"]))
             self.query_one("#body-batt", Static).update(self._batt_body(data["batt"]))
             self.query_one("#ph-procs", Static).update(self._procs_header(data))
             self._update_procs_table(self._render_procs(data))
@@ -412,9 +415,11 @@ Screen {
         cpu = dict(base)
         if delta is not None:
             cpu["percent"], cpu["per_cpu"] = delta
+        ram = providers.ram_info(top=False)
+        self._mem_hist.append(ram["percent"])
         return {
             "cpu": cpu,
-            "ram": providers.ram_info(top=False),
+            "ram": ram,
             "net": providers.net_info(),
             "net_rates": providers.network_speeds(),
             "disk": providers.disk_info(),
@@ -427,25 +432,29 @@ Screen {
             "batt": providers.battery_info(),
             "temp": providers.cpu_temp_celsius(),
             "clock": datetime.now().strftime("%H:%M:%S"),
+            "cpu_hist": providers.cpu_history(),
+            "mem_hist": list(self._mem_hist),
+            "net_hist": providers.net_history(),
+            "disk_hist": providers.disk_history(),
         }
 
     # --- рендеры панелей ---
     def _metric_line(self, big: str, label: str) -> str:
         return f"{big}  [#7d858e]{label}[/]"
 
-    def _cpu_body(self, d: dict, temp: float | None) -> str:
+    def _cpu_body(self, d: dict, temp: float | None, hist: list) -> str:
         freq = d.get("freq_current") or 0
         ghz = f"{freq / 1000:.2f} GHz" if freq else "\u2014"
         t = f"{temp:.0f}\u00b0C" if temp is not None else "\u2014"
         return "\n".join([
             self._metric_line(f"[{color_for(d['percent'])}]{d['percent']:3.0f}[/][#7d858e] %[/]", "TOTAL USAGE"),
-            bar_pct(d["percent"], 22),
+            f"{bar_pct(d['percent'], 14)}  [#555d66]{sparkline(hist, 26)}[/]",
             f"[#555d66]FREQ[/] {ghz}"
             f"   [#555d66]CORES[/] [#e6e9ec]{d['count_physical']}p/{d['count_logical']}l[/]"
             f"   [#555d66]TEMP[/] [#e6e9ec]{t}[/]",
         ])
 
-    def _mem_body(self, d: dict) -> str:
+    def _mem_body(self, d: dict, hist: list) -> str:
         def row(label: str, val: str) -> str:
             return f"[#555d66]{label:<9}[/] [#e6e9ec]{val}[/]"
 
@@ -454,7 +463,7 @@ Screen {
                 f"[{color_for(d['percent'])}]{d['percent']:3.0f}[/][#7d858e] %[/]",
                 "TOTAL USAGE",
             ),
-            bar_pct(d["percent"], 22),
+            f"{bar_pct(d['percent'], 14)}  [#555d66]{sparkline(hist, 26)}[/]",
             row("TOTAL", f"{bytes_to_human(d['total']):>9}"),
             row("USED", f"{bytes_to_human(d['used']):>9}"),
             row("AVAILABLE", f"{bytes_to_human(d['available']):>9}"),
@@ -469,9 +478,17 @@ Screen {
         if not name:
             return "[#7d858e]no GPU info detected[/]"
         name = _trunc(name, 34)
-        vram = g.get("vram_gb")
-        vram_txt = f"{vram:.1f} / {vram:.1f} GB" if vram else "\u2014"
+        used, total = g.get("vram_used_gb"), g.get("vram_gb")
+        if used and total:
+            vram_txt = f"{used:.1f} / {total:.1f} GB"
+        elif total:
+            vram_txt = f"{total:.1f} GB total"
+        elif used:
+            vram_txt = f"{used:.1f} GB used"
+        else:
+            vram_txt = "\u2014"
         util, temp = g.get("util"), g.get("temp")
+        source = g.get("source") or "wmi"
         lines = [
             self._metric_line(
                 f"[#e6e9ec]{util:.0f}[/][#7d858e] %[/]" if util is not None else "[#e6e9ec]N/A[/]",
@@ -482,12 +499,12 @@ Screen {
             lines.append(bar_pct(util, 22))
         else:
             lines.append(bar_pct(0, 22))
-        lines.append(f"[#555d66]GPU[/] [#7d858e]{name}[/]")
+        lines.append(f"[#555d66]GPU[/] [#7d858e]{name}[/]  [#555d66][{source}][/]")
         t_txt = f"{temp}\u00b0C" if temp is not None else "\u2014"
         lines.append(f"[#555d66]TEMP[/] [#7d858e]{t_txt}[/]   [#555d66]VRAM[/] [#e6e9ec]{vram_txt}[/]")
         return "\n".join(lines)
 
-    def _disk_body(self, d: dict, io: dict) -> str:
+    def _disk_body(self, d: dict, io: dict, hist: dict) -> str:
         disks = d.get("disks") or []
         if not disks:
             return "[#7d858e]no disks[/]"
@@ -503,9 +520,13 @@ Screen {
             f"[#555d66]READ[/] {_rate(io.get('read', 0))}"
             f"  [#555d66]WRITE[/] {_rate(io.get('write', 0))}"
         )
+        lines.append(
+            f"[#555d66]TREND R[/] [#555d66]{sparkline(hist.get('read'), 20)}[/]"
+            f"  [#555d66]W[/] [#555d66]{sparkline(hist.get('write'), 20)}[/]"
+        )
         return "\n".join(lines)
 
-    def _net_body(self, rates: dict, conn: dict, net: dict) -> str:
+    def _net_body(self, rates: dict, conn: dict, net: dict, hist: dict) -> str:
         up_ifaces = [i for i in net.get("interfaces", []) if i["up"] and i["ipv4"]]
         if up_ifaces:
             itf = up_ifaces[0]
@@ -515,15 +536,13 @@ Screen {
             top = "[#7d858e]no interfaces up[/]"
         down = rates.get("down") or 0
         up = rates.get("up") or 0
-        self._net_peak["down"] = max(self._net_peak["down"], down)
-        self._net_peak["up"] = max(self._net_peak["up"], up)
-        dw = int(20 * min(down / self._net_peak["down"], 1))
-        uw = int(20 * min(up / self._net_peak["up"], 1))
         total = conn.get("total", 0)
         return "\n".join([
             top,
-            ("[#555d66]DOWNLOAD[/] " + _rate(down) + f"  [{ACCENT}]{'█' * dw}[/][{TRACK}]{'░' * (20 - dw)}[/]"),
-            ("[#555d66]UPLOAD[/]   " + _rate(up) + f"  [{ACCENT}]{'█' * uw}[/][{TRACK}]{'░' * (20 - uw)}[/]"),
+            ("[#555d66]DOWNLOAD[/] " + _rate(down)
+             + "  [#555d66]" + sparkline(hist.get("down"), 20) + "[/]"),
+            ("[#555d66]UPLOAD[/]   " + _rate(up)
+             + "  [#555d66]" + sparkline(hist.get("up"), 20) + "[/]"),
             f"[#555d66]CONNECTIONS[/] [#e6e9ec]{total}[/]",
         ])
 
@@ -863,8 +882,11 @@ Screen {
         if not g.get("name"):
             return "[dim]GPU[/]\n[#7d858e]no GPU info detected[/]"
         lines = ["[dim]GPU[/]", f"[#e6e9ec]{g['name']}[/]"]
-        if g.get("vram_gb"):
-            lines.append(f"[#555d66]{'VRAM':<9}[/] [#e6e9ec]{g['vram_gb']:.1f} GB[/]")
+        used, total = g.get("vram_used_gb"), g.get("vram_gb")
+        if used and total:
+            lines.append(f"[#555d66]{'VRAM':<9}[/] [#e6e9ec]{used:.1f} / {total:.1f} GB[/]")
+        elif total:
+            lines.append(f"[#555d66]{'VRAM':<9}[/] [#e6e9ec]{total:.1f} GB[/]")
         if g.get("util") is not None:
             lines.append(f"[#555d66]{'Util':<9}[/] {g['util']:.0f}%  {bar_pct(g['util'], 16)}")
         if g.get("temp") is not None:
@@ -888,7 +910,7 @@ Screen {
     def _cmd_temp(self, args) -> str:
         d = providers.temperatures()
         if not d["available"]:
-            return "[#7d858e]temperatures not supported via psutil on this system[/]"
+            return "[#7d858e]no temperature sensors available on this system[/]"
         lines = ["[dim]temperatures[/]"]
         for name, entries in d["temps"].items():
             for e in entries:
