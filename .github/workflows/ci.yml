@@ -41,9 +41,6 @@ jobs:
           - os: ubuntu-latest
             bin: dist/syscheck
             asset: syscheck-linux-x86_64
-          - os: macos-13
-            bin: dist/syscheck
-            asset: syscheck-macos-x86_64
           - os: macos-14
             bin: dist/syscheck
             asset: syscheck-macos-arm64
