@@ -1,4 +1,5 @@
 ﻿"""Главный entry point для syscheck CLI."""
+import json
 import sys
 import typer
 from rich.console import Console
@@ -49,6 +50,8 @@ from syscheck.commands.proc import proc_cmd
 from syscheck.commands.temp import temp_cmd
 from syscheck.commands.sys import sys_cmd
 from syscheck.commands.watch import watch_cmd
+from syscheck.commands.gpu import gpu_cmd
+from syscheck.commands.battery import battery_cmd
 
 app.command("cpu")(cpu_cmd)
 app.command("ram")(ram_cmd)
@@ -58,6 +61,25 @@ app.command("proc")(proc_cmd)
 app.command("temp")(temp_cmd)
 app.command("sys")(sys_cmd)
 app.command("watch")(watch_cmd)
+app.command("gpu")(gpu_cmd)
+app.command("battery")(battery_cmd)
+
+
+def _all_data() -> dict:
+    """Все метрики одним JSON-объектом (для `all --json`)."""
+    from syscheck import providers
+
+    return {
+        "cpu": providers.cpu_info(),
+        "ram": providers.ram_info(),
+        "disk": providers.disk_info(),
+        "net": providers.net_info(),
+        "net_rates": providers.network_speeds(),
+        "temp": providers.temperatures(),
+        "gpu": providers.gpu_info(),
+        "battery": providers.battery_info(),
+        "sys": providers.system_info(),
+    }
 
 
 @app.command("all")
@@ -65,12 +87,18 @@ def all_cmd(
     output_json: bool = typer.Option(False, "--json", "-j", help="Вывод в JSON"),
 ):
     """Показать все метрики системы."""
+    if output_json:
+        console.print_json(json.dumps(_all_data(), indent=2, default=str))
+        return
+
     from syscheck.commands.cpu import show_cpu
     from syscheck.commands.ram import show_ram
     from syscheck.commands.disk import show_disk
     from syscheck.commands.net import show_net
     from syscheck.commands.temp import show_temp
     from syscheck.commands.sys import show_sys
+    from syscheck.commands.gpu import show_gpu
+    from syscheck.commands.battery import show_battery
 
     console.rule("syscheck — Полная диагностика")
     console.print()
@@ -78,11 +106,15 @@ def all_cmd(
     console.print()
     show_ram()
     console.print()
+    show_gpu()
+    console.print()
     show_disk()
     console.print()
     show_net()
     console.print()
     show_temp()
+    console.print()
+    show_battery()
     console.print()
     show_sys()
 

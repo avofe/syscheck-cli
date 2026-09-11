@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Директория конфига (например ~/.syscheck)
-CONFIG_DIR = Path(os.environ.get("SYSSCHECK_CONFIG_DIR", "~/.syscheck")).expanduser()
+CONFIG_DIR = Path(os.environ.get("SYSCHECK_CONFIG_DIR", "~/.syscheck")).expanduser()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 AUDIT_LOG = CONFIG_DIR / "shell_audit.log"
 

@@ -108,7 +108,7 @@ def _swap_slow():
     return _swap_cache["v"]
 
 
-def disk_info() -> List[Dict[str, Any]]:
+def disk_info() -> Dict[str, Any]:
     disks = []
     for part in psutil.disk_partitions(all=False):
         try:

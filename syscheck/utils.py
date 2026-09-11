@@ -10,6 +10,8 @@ from typing import Optional
 
 from rich.console import Console
 
+from syscheck import config
+
 console = Console()
 
 # Ширина колонки подписи по умолчанию в выровненных списках
@@ -46,30 +48,32 @@ def seconds_to_human(s: float) -> str:
     return " ".join(parts)
 
 
-def get_color_for_percent(percent: float) -> str:
+def get_color_for_percent(percent: float, name: str = "cpu") -> str:
     """Возвращает цвет в зависимости от процента нагрузки.
 
-    Красный/жёлтый — только для реальных предупреждений (высокая нагрузка).
+    Красный/жёлтый — только для реальных предупреждений (пороги из конфига).
     Обычные значения — нейтральный cyan.
     """
-    if percent >= 90:
+    warn, crit = config.thresholds(name)
+    if percent >= crit:
         return "red"
-    elif percent >= 75:
+    elif percent >= warn:
         return "yellow"
     else:
         return "cyan"
 
 
-def make_bar(percent: float, width: int = 12) -> str:
+def make_bar(percent: float, width: int = 12, name: str = "cpu") -> str:
     """Создаёт ASCII прогресс-бар вида [####......]."""
+    warn, crit = config.thresholds(name)
     filled = int(width * percent / 100)
     filled = max(0, min(width, filled))
     empty = width - filled
     body = "#" * filled + "." * empty
     # цвет только при фактическом перегрузе
-    if percent >= 90:
+    if percent >= crit:
         colour = "[red]"
-    elif percent >= 75:
+    elif percent >= warn:
         colour = "[yellow]"
     else:
         colour = "[cyan]"

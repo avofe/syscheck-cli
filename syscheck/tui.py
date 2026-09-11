@@ -32,6 +32,7 @@ from textual.containers import Container, Grid
 from textual.widgets import DataTable, Static, Input, RichLog
 
 from syscheck import cmdlang as cmdmod
+from syscheck import config
 from syscheck import providers
 from syscheck import shellguard
 from syscheck import __version__
@@ -64,6 +65,14 @@ def _trunc_markup(s: str, n: int) -> str:
     return str(cut)
 
 
+def _shell_body(raw: str) -> str:
+    """Из '!shell df -h' / '!df -h' выделяет саму команду ('df -h')."""
+    body = raw[1:].strip()
+    if body.lower().startswith("shell"):
+        body = body[5:].strip()
+    return body
+
+
 class ProcsTable(DataTable):
     """Интерактивная таблица процессов: Enter/K/S/R//."""
 
@@ -73,6 +82,7 @@ class ProcsTable(DataTable):
         Binding("s", "stop_p", "Stop", show=False),
         Binding("r", "restart_p", "Restart", show=False),
         Binding("/", "search_p", "Search", show=False),
+        Binding("t", "cycle_sort", "Sort", show=False),
     ]
 
     def __init__(self, tui, **kwargs):
@@ -103,6 +113,9 @@ class ProcsTable(DataTable):
 
     def action_search_p(self) -> None:
         self._tui.focus_process_search()
+
+    def action_cycle_sort(self) -> None:
+        self._tui.cycle_sort()
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +236,7 @@ Screen {
 
     WATCH_PANELS = {"cpu": "#panel-cpu", "network": "#panel-net", "process": "#panel-procs"}
 
-    _TOGGLE_MAP = {"1": "cpu", "2": "gpu", "3": "net", "4": "batt", "5": "procs"}
+    _TOGGLE_MAP = {"0": "all", "1": "cpu", "2": "gpu", "3": "net", "4": "batt", "5": "procs"}
     _PANEL_NAMES = {
         "cpu": "CPU", "gpu": "GPU", "net": "NETWORK",
         "batt": "BATTERY", "procs": "PROCESSES",
@@ -283,7 +296,7 @@ Screen {
         self._log = self.query_one("#log", RichLog)
         self._write("[#8bd450][+] syscheck[/] [dim]v{0} — interactive diagnostics[/]".format(__version__))
         self._write("[dim]type 'help' for commands · ctrl+p palette · ctrl+c to exit[/]")
-        self._write("[dim]1-5 toggle panels (1cpu 2gpu 3net 4batt 5proc) · ctrl+p palette[/]")
+        self._write("[dim]0-5 toggle panels (0 all · 1cpu 2gpu 3net 4batt 5proc) · t sort[/]")
         try:
             dt = self._dt
             widths = {"PID": 6, "PROCESS": 26, "CPU": 9, "MEMORY": 10, "STATUS": 9}
@@ -294,20 +307,47 @@ Screen {
                     pass
         except Exception:
             pass
-        for name in ("cpu", "gpu", "batt"):
+        visible = set(config.default_panels())
+        for pid in ("cpu", "ram", "gpu", "disk", "net", "batt"):
             try:
-                self.query_one(f"#panel-{name}").display = False
+                self.query_one(f"#panel-{pid}").display = pid in visible
             except Exception:
                 pass
+        try:
+            procs_visible = "procs" in visible
+            self.query_one("#panel-procs").display = procs_visible
+            self.query_one("#dash").set_class(not procs_visible, "procs-hidden")
+        except Exception:
+            pass
         self._apply_watch()
-        self.set_interval(2.0, self._refresh_dashboard)
+        self.set_interval(config.refresh_interval(), self._refresh_dashboard)
         self._refresh_dashboard()
         if self._enable_shell_requested:
             self._activate_shell()
         self.query_one("#cmd", Input).focus()
 
     # --- toggle панелей ---
+    def _show_all_panels(self) -> None:
+        for pid in ("cpu", "ram", "gpu", "disk", "net", "batt"):
+            try:
+                self.query_one(f"#panel-{pid}").display = True
+            except Exception:
+                pass
+        try:
+            self.query_one("#panel-procs").display = True
+        except Exception:
+            pass
+        try:
+            self.query_one("#dash").set_class(False, "procs-hidden")
+        except Exception:
+            pass
+        self._apply_watch()
+        self._write("[dim]all panels shown[/]")
+
     def _toggle_panel(self, name: str) -> None:
+        if name == "all":
+            self._show_all_panels()
+            return
         try:
             w = self.query_one(f"#panel-{name}")
         except Exception:
@@ -353,7 +393,7 @@ Screen {
             return
         self._dash = data
         try:
-            self.query_one("#hints", Static).update("1\u20115 panels \u00b7 ctrl+p palette")
+            self.query_one("#hints", Static).update("0\u20115 panels \u00b7 t sort \u00b7 ctrl+p palette")
             self.query_one("#body-cpu", Static).update(self._cpu_body(data["cpu"], data["temp"]))
             self.query_one("#body-ram", Static).update(self._mem_body(data["ram"]))
             self.query_one("#body-gpu", Static).update(self._gpu_body(data["gpu"]))
@@ -544,7 +584,7 @@ Screen {
             dt.add_row(
                 Text(f"{pid}", style=TEXT),
                 Text(name, style=TEXT),
-                Text(f"{cpu:5.1f}%", style=color_for(cpu)),
+                Text(f"{cpu:5.1f}%", style=color_for(cpu, "cpu")),
                 Text(bytes_to_human(rss), style=TEXT),
                 Text(st.upper(), style=sc),
                 key=str(pid),
@@ -614,6 +654,16 @@ Screen {
             except Exception:
                 pass
 
+    # --- сортировка процессов: одна клавиша t ---
+    def cycle_sort(self) -> None:
+        order = ["cpu", "ram", "name"]
+        self._proc_sort = (
+            order[(order.index(self._proc_sort) + 1) % len(order)]
+            if self._proc_sort in order else "cpu"
+        )
+        self._write(f"[dim]processes sorted by {self._proc_sort}[/]")
+        self._refresh_dashboard()
+
     # --- Command Palette ---
     def action_palette(self) -> None:
         self.push_screen(PaletteScreen(cmdmod.command_list()), callback=self._palette_picked)
@@ -657,6 +707,13 @@ Screen {
 
         if raw in self._TOGGLE_MAP:
             self._toggle_panel(self._TOGGLE_MAP[raw])
+            return
+
+        if raw.startswith("!"):
+            self.history.append(raw)
+            self._hist_index = len(self.history)
+            self._write(f"[#7d858e]❯[/] [bold]{raw}[/]")
+            self._handle_shell_cmd(_shell_body(raw))
             return
 
         self.history.append(raw)
@@ -733,8 +790,7 @@ Screen {
         except RuntimeError:
             self._write("[red]error: app loop not running[/]")
 
-    def _handle_shell_cmd(self, args) -> None:
-        shell_cmd = " ".join(args)
+    def _handle_shell_cmd(self, shell_cmd: str) -> None:
         if not shell_cmd:
             self._write("[dim]usage: !shell <command>[/]")
             return
@@ -793,13 +849,13 @@ Screen {
         d = providers.ram_info()
         lines = [
             "[dim]MEMORY[/]",
-            f"[#555d66]{'Used':<9}[/] [{color_for(d['percent'])}]{bytes_to_human(d['used'])}[/] / {bytes_to_human(d['total'])}  ({d['percent']:.0f}%)",
+            f"[#555d66]{'Used':<9}[/] [{color_for(d['percent'], 'mem')}]{bytes_to_human(d['used'])}[/] / {bytes_to_human(d['total'])}  ({d['percent']:.0f}%)",
             f"[#555d66]{'Available':<9}[/] [#e6e9ec]{bytes_to_human(d['available'])}[/]",
             f"[#555d66]{'Cached':<9}[/] [#e6e9ec]{bytes_to_human(d['cached'])}[/]",
         ]
         if d["swap_total"] > 0:
             lines.append(f"[#555d66]{'Swap':<9}[/] {d['swap_percent']:.0f}% ({bytes_to_human(d['swap_total'])})")
-        lines.append(bar_pct(d["percent"], 20))
+        lines.append(bar_pct(d["percent"], 20, "mem"))
         return "\n".join(lines)
 
     def _cmd_gpu(self, args) -> str:
@@ -951,7 +1007,7 @@ Screen {
             )
         if len(lines) == 2:
             lines.append("[#7d858e]no processes[/]")
-        lines.append("[dim]\u2192 click the table or tab to it: Enter details \u00b7 K kill \u00b7 S stop \u00b7 R restart \u00b7 / search[/]")
+        lines.append("[dim]\u2192 table: Enter details \u00b7 K kill \u00b7 S stop \u00b7 R restart \u00b7 t sort \u00b7 / search[/]")
         return "\n".join(lines)
 
     def _cmd_proc(self, args) -> str:
@@ -1053,8 +1109,8 @@ Screen {
         return f"watching: {self._watch}{extra}"
 
     def _cmd_settings(self) -> str:
-        cfg = os.path.expanduser("~/.syscheck/config.json")
-        audit = os.path.expanduser("~/.syscheck/shell_audit.log")
+        cfg = str(config.CONFIG_FILE)
+        audit = str(shellguard.AUDIT_LOG)
         shell = "enabled" if shellguard.is_enabled() else "disabled"
         watch = self._watch or "none"
         return "\n".join([
@@ -1062,6 +1118,7 @@ Screen {
             f"[#555d66]{'Version':<9}[/] {__version__}",
             f"[#555d66]{'Config':<9}[/] {cfg}",
             f"[#555d66]{'Audit':<9}[/] {audit}",
+            f"[#555d66]{'Interval':<9}[/] {config.refresh_interval():.1f}s",
             f"[#555d66]{'!shell':<9}[/] [{WARN}]{shell}[/]",
             f"[#555d66]{'Watch':<9}[/] {watch}",
         ])

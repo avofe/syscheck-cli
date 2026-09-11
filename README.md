@@ -66,13 +66,19 @@ twine upload dist/*.whl dist/*.tar.gz # только py-артефакты (exe 
 | `syscheck ram` | Оперативная память, топ процессов по RAM |
 | `syscheck disk` | Диски: место, состояние, I/O |
 | `syscheck net --ping 8.8.8.8` | Сеть: интерфейсы, трафик, пинг |
+| `syscheck gpu` | Видеокарта (имя, VRAM; util/temp — если драйвер отдаёт) |
+| `syscheck battery` | Состояние батареи |
 | `syscheck proc --sort cpu` | Топ процессов (cpu/ram) |
 | `syscheck temp` | Температуры (если поддерживается) |
-| `syscheck sys` | ОС, uptime, hostname |
+| `syscheck sys` | ОС, uptime, hostname (+ summary) |
 | `syscheck all` | Вся диагностика сразу |
 | `syscheck watch` | Live-дашборд (обновление каждые N сек) |
 
 Каждая команда поддерживает `--json` для машинного вывода.
+`all --json` — всё одним объектом; `sys --json` включает summary;
+`watch --json` печатает один JSON-объект на тик (для скриптов),
+`watch --iterations N` останавливает мониторинг после N тиков
+(по умолчанию работает без лимита).
 
 ## Интерактивный режим (TUI)
 
@@ -80,27 +86,55 @@ twine upload dist/*.whl dist/*.tar.gz # только py-артефакты (exe 
 который обновляется каждые 2 секунды:
 
 ```
-CPU                  GPU
- MEMORY               PROCESSES
- [████░░░░] 45% [P]      PID PROCESS...
- TOTAL 15.3 GB           ...
- USED   6.9 GB
- STORAGE  NETWORK  BATTERY
+CPU  MEMORY             PROCESSES
+ [████░░░░] 45%  [P]      PID PROCESS...
+ FREQ 3.4GHz ...  TOTAL 15.3 GB  ...
+                        …
+ STORAGE  NETWORK
  ─────────────────────────────────────
  ❯ ram
- v0.2.0 · 1-5 toggle panels · ctrl+p palette
+ v0.5.0 · 0-5 toggle panels · t sort · ctrl+p palette
 ```
 
-- **7 панелей**: CPU, MEMORY, GPU, STORAGE, NETWORK, BATTERY, PROCESSES
-- **Тогглы панелей**: в набраном тексте введи цифру и Enter — `1` CPU, `2` GPU,
-  `3` NETWORK, `4` BATTERY, `5` PROCESSES (`0` возвращает всё)
+- **7 панелей**: CPU, MEMORY, GPU, STORAGE, NETWORK, BATTERY, PROCESSES.
+  По умолчанию видны **PROCESSES + CPU, MEMORY, STORAGE, NETWORK** —
+  главный вопрос («кто ест процессор») видно сразу; GPU и BATTERY — по клавише.
+- **Тогглы панелей**: введи цифру и Enter — `1` CPU, `2` GPU, `3` NETWORK,
+  `4` BATTERY, `5` PROCESSES, `0` показать все сразу.
 - **Палитра команд**: `Ctrl+P` — фильтруй и запускай команды, `↑↓` выбор, `Enter` запуск, `Esc` закрыть
 - **Инпут внизу** — обычные команды как в CLI (`ram`, `proc`, `net 8.8.8.8` …)
-- **Процессы**: стрелками вверх/вниз выбирай строку, `Enter` — карточка процесса;
-  в карточке `s` — сортировка CPU/RAM, `f` — фильтр по имени, `Esc` — назад
+- **Процессы**: стрелками выбирай строку, `Enter` — карточка процесса,
+  `K` — kill (с подтверждением), `S` — suspend, `R` — restart,
+  `t` — цикличная сортировка CPU → RAM → имя, `/` — поиск, `Esc` — назад
 - Выход: `exit`, `ctrl+c` или `q`
 
 Команды работают и в TUI, и как обычный CLI (см. таблицу выше).
+
+## Конфигурация
+
+Файл `~/.syscheck/config.toml` (пользовательский каталог можно переопределить
+переменной `SYSCHECK_CONFIG_DIR`). Все ключи опциональны:
+
+```toml
+refresh_interval = 2.0     # интервал обновления TUI (сек)
+watch_interval = 2         # интервал `syscheck watch` по умолчанию (сек)
+ping_host = "8.8.8.8"      # хост для пинга по умолчанию
+default_panels = ["cpu", "ram", "disk", "net", "procs"]  # видимые панели TUI
+
+[thresholds]
+[thresholds.cpu]
+warn = 75                  # жёлтый цвет
+crit = 90                  # красный цвет
+[thresholds.mem]
+warn = 85
+crit = 90
+[thresholds.disk]
+warn = 85
+crit = 95
+```
+
+Пороги в конфиге применяются и к цветам TUI, и к предупреждениям CLI.
+`syscheck settings` в TUI показывает путь к конфигу и текущие значения.
 
 ## Безопасность `!shell`
 
@@ -115,7 +149,8 @@ syscheck --enable-shell
 - На **каждую** команду требуется подтверждение (повторить команду или `confirm`).
 - Каждое выполнение записывается в audit-лог:
   `~/.syscheck/shell_audit.log`.
-- Настройки хранятся в `~/.syscheck/config.json`.
+- Состояние `!shell` хранится в `~/.syscheck/config.json`; остальные
+  настройки — в `~/.syscheck/config.toml` (см. «Конфигурация»).
 
 ---
 
@@ -259,12 +294,17 @@ curl -sSL https://raw.githubusercontent.com/avofe/syscheck-cli/main/scripts/inst
 ### Features
 
 - **TUI dashboard**: CPU, MEMORY, GPU, STORAGE, NETWORK, BATTERY, PROCESSES panels,
-  live updates every 2s. Toggle panels with `1`–`5` + Enter, open the command
+  live updates every N seconds. Toggle panels with `0`–`5` + Enter (`0` shows all),
+  cycle process sort with `t` (CPU → RAM → name), open the command
   palette with `Ctrl+P`, run any command from the input line.
-- **CLI commands**: `syscheck cpu|ram|disk|net|proc|temp|sys|all|watch`
+- **CLI commands**: `syscheck cpu|ram|gpu|battery|disk|net|proc|temp|sys|all|watch`
   (each supports `--json`).
+- **JSON for scripts**: `all --json` — everything in one object, `watch --json`
+  — one JSON line per tick, `watch --iterations N` — bounded monitoring.
+- **Config file**: `~/.syscheck/config.toml` (TOML) for refresh interval,
+  color thresholds and default panels.
 - **Process details**: browse the process table, `Enter` opens a detail card,
-  sort with `s`, filter with `f`.
+  sort with `t`, filter with `/`, kill with `K`.
 - **Plugins**: drop a `.py` file into `syscheck/plugins/` to add commands.
 - **`!shell`**: optional shell access from the TUI, disabled by default and
   audited (`~/.syscheck/shell_audit.log`).

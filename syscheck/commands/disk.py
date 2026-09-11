@@ -3,7 +3,7 @@ import json
 
 import typer
 
-from syscheck import providers
+from syscheck import config, providers
 from syscheck.utils import (
     console, make_bar, print_value, print_header, get_color_for_percent, bytes_to_human,
     print_error, print_warning,
@@ -12,6 +12,7 @@ from syscheck.utils import (
 
 def show_disk() -> None:
     data = providers.disk_info()
+    warn, crit = config.thresholds("disk")
 
     print_header("disks")
 
@@ -20,9 +21,9 @@ def show_disk() -> None:
         return
 
     for d in data["disks"]:
-        colour = get_color_for_percent(d["percent"])
+        colour = get_color_for_percent(d["percent"], "disk")
         console.print(
-            f"{d['device'].ljust(8)} [{colour}]{d['percent']:4.1f}%[/] {make_bar(d['percent'])}  "
+            f"{d['device'].ljust(8)} [{colour}]{d['percent']:4.1f}%[/] {make_bar(d['percent'], name='disk')}  "
             f"{bytes_to_human(d['used'])} / {bytes_to_human(d['total'])}  "
             f"(free {bytes_to_human(d['free'])})"
         )
@@ -35,9 +36,9 @@ def show_disk() -> None:
         print_value("write", bytes_to_human(io.write_bytes))
 
     for d in data["disks"]:
-        if d["percent"] > 95:
+        if d["percent"] > crit:
             print_error(f"{d['device']}: критически мало места!")
-        elif d["percent"] > 85:
+        elif d["percent"] > warn:
             print_warning(f"{d['device']}: мало свободного места")
 
 

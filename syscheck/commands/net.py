@@ -3,13 +3,15 @@ import json
 
 import typer
 
-from syscheck import providers
+from syscheck import config, providers
 from syscheck.utils import (
     console, print_value, print_header, bytes_to_human, print_ok, print_warning, print_error,
 )
 
 
-def show_net(ping_host: str = "8.8.8.8") -> None:
+def show_net(ping_host: str | None = None) -> None:
+    if ping_host is None:
+        ping_host = config.ping_host()
     data = providers.net_info()
 
     print_header("network")
@@ -48,9 +50,11 @@ def show_net(ping_host: str = "8.8.8.8") -> None:
 
 def net_cmd(
     output_json: bool = typer.Option(False, "--json", "-j", help="Вывод в JSON"),
-    ping_host: str = typer.Option("8.8.8.8", "--ping", "-p", help="Хост для пинга"),
+    ping_host: str = typer.Option(None, "--ping", "-p", help="Хост для пинга (по умолчанию из конфига)"),
 ):
     """Диагностика сети (интерфейсы, трафик, пинг)."""
+    if ping_host is None:
+        ping_host = config.ping_host()
     if output_json:
         data = providers.net_info()
         data["ping"] = providers.ping(ping_host)

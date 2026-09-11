@@ -3,7 +3,7 @@ import json
 
 import typer
 
-from syscheck import providers
+from syscheck import config, providers
 from syscheck.utils import (
     console, make_bar, print_value, print_header, get_color_for_percent, bytes_to_human,
 )
@@ -11,12 +11,13 @@ from syscheck.utils import (
 
 def show_ram() -> None:
     data = providers.ram_info()
+    warn, crit = config.thresholds("mem")
 
     print_header("ram")
 
-    colour = get_color_for_percent(data["percent"])
+    colour = get_color_for_percent(data["percent"], "mem")
     console.print(
-        f"usage       [{colour}]{data['percent']}%[/] {make_bar(data['percent'])}"
+        f"usage       [{colour}]{data['percent']}%[/] {make_bar(data['percent'], name='mem')}"
     )
     print_value("used", f"{bytes_to_human(data['used'])} / {bytes_to_human(data['total'])}")
     print_value("free", bytes_to_human(data["available"]))
@@ -28,14 +29,14 @@ def show_ram() -> None:
         print_header("top by ram")
         for p in data["top_procs"]:
             pct = p["memory_percent"] or 0
-            pc = get_color_for_percent(pct)
+            pc = get_color_for_percent(pct, "mem")
             console.print(
                 f"  {p['pid']:<8} {(p['name'] or '?')[:28]:<28} [{pc}]{pct:5.1f}%[/]"
             )
 
-    if data["percent"] >= 90:
+    if data["percent"] >= crit:
         console.print("  [red][!] память почти исчерпана[/]")
-    elif data["percent"] >= 85:
+    elif data["percent"] >= warn:
         console.print("  [yellow][!] много памяти используется[/]")
 
 

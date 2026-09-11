@@ -1,6 +1,6 @@
-﻿"""РљРѕРјР°РЅРґРЅС‹Р№ СЏР·С‹Рє syscheck.
+﻿"""Командный язык syscheck.
 
-Р“СЂР°РјРјР°С‚РёРєР° СЂР°Р·РґРµР»РµРЅР° РЅР° РіСЂСѓРїРїС‹:
+Грамматика разделена на группы:
 
     Info       cpu, ram, gpu, disk, battery, temp
     Processes  process list/find/kill/stop/resume/restart/details/sort
@@ -8,15 +8,15 @@
     Display    watch, refresh
     System     system, all, help, clear, exit
 
-РЎРїРёСЃРѕРє COMMANDS вЂ” РµРґРёРЅС‹Р№ РёСЃС‚РѕС‡РЅРёРє: РѕРЅ Р¶Рµ РїРёС‚Р°РµС‚ Command Palette (Ctrl+P)
-Рё СЃРїСЂР°РІРєСѓ `help`. РћР±СЂР°Р±РѕС‚С‡РёРєРё СЂРµР°Р»РёР·РѕРІР°РЅС‹ РІ TUI РєР°Рє РјРµС‚РѕРґС‹ `_cmd_*`;
-СЌС‚РѕС‚ РјРѕРґСѓР»СЊ С‚РѕР»СЊРєРѕ РѕРїРёСЃС‹РІР°РµС‚ РєРѕРјР°РЅРґС‹ Рё РіРµРЅРµСЂРёСЂСѓРµС‚ С‚РµРєСЃС‚ СЃРїСЂР°РІРєРё/РїР°Р»РёС‚СЂС‹.
+Список COMMANDS — единый источник: он же питает Command Palette (Ctrl+P)
+и справку `help`. Обработчики реализованы в TUI как методы `_cmd_*`;
+этот модуль только описывает команды и генерирует текст справки/палитры.
 """
 from __future__ import annotations
 
 CATEGORIES = ["Info", "Processes", "Network", "Battery", "Display", "System"]
 
-# (РєРѕРјР°РЅРґР°, РєР°С‚РµРіРѕСЂРёСЏ, РѕРїРёСЃР°РЅРёРµ, РЅСѓР¶РµРЅ Р»Рё С„РѕРЅРѕРІС‹Р№ РїРѕС‚РѕРє)
+# (команда, категория, описание, нужен ли фоновый поток)
 COMMANDS = [
     ("cpu", "Info", "CPU information", True),
     ("ram", "Info", "Memory information", True),
@@ -38,14 +38,14 @@ COMMANDS = [
     ("exit", "System", "quit (alias: quit)", False),
 ]
 
-# СЃРєСЂС‹С‚С‹Рµ Р°Р»РёР°СЃС‹ (РЅРµ РїРѕРєР°Р·С‹РІР°СЋС‚СЃСЏ РІ СЃРїСЂР°РІРєРµ/РїР°Р»РёС‚СЂРµ)
+# скрытые алиасы (не показываются в справке/палитре)
 _ALIASES = {
     "quit": ("exit", ""),
 }
 
 
 def command_list() -> list:
-    """РџРѕР»РЅС‹Р№ СЃРїРёСЃРѕРє РєРѕРјР°РЅРґ РїР°Р»РёС‚СЂС‹ (Р±РµР· Р°Р»РёР°СЃРѕРІ)."""
+    """Полный список команд палитры (без алиасов)."""
     out = []
     for cmd, cat, desc, thread in COMMANDS:
         out.append({"cmd": cmd, "cat": cat, "desc": desc, "thread": thread})
@@ -53,7 +53,7 @@ def command_list() -> list:
 
 
 def lookup(words: list) -> dict | None:
-    """РќР°С…РѕРґРёС‚ Р·Р°РїРёСЃСЊ РєРѕРјР°РЅРґС‹ РїРѕ РїРµСЂРІС‹Рј СЃР»РѕРІР°Рј (СЃ СѓС‡С‘С‚РѕРј Р°Р»РёР°СЃРѕРІ)."""
+    """Находит запись команды по первым словам (с учётом алиасов)."""
     first = (words[0] if words else "").lower()
     if first in _ALIASES:
         cmd, _ = _ALIASES[first]
@@ -66,7 +66,7 @@ def lookup(words: list) -> dict | None:
 
 
 def expected_args(cmd: str) -> str:
-    """РџРѕРґСЃРєР°Р·РєР° РїРѕ Р°СЂРіСѓРјРµРЅС‚Р°Рј РєРѕРјР°РЅРґС‹ (РґР»СЏ СЃРїСЂР°РІРєРё РїРѕ РѕРґРЅРѕР№ РєРѕРјР°РЅРґРµ)."""
+    """Подсказка по аргументам команды (для справки по одной команде)."""
     guide = {
         "disk": "disk list | disk info C: | disk io",
         "network": "network | network connections | network interfaces | network speeds | network ping <host>",
@@ -89,7 +89,7 @@ def expected_args(cmd: str) -> str:
 
 
 def help_text() -> str:
-    """РџРѕР»РЅР°СЏ СЃРїСЂР°РІРєР° РїРѕ РіСЂСѓРїРїР°Рј."""
+    """Полная справка по группам."""
     lines = ["[bold]syscheck commands[/]"]
     for cat in CATEGORIES:
         items = [(c, d, t) for c, cc, d, t in COMMANDS if cc == cat]
@@ -99,8 +99,9 @@ def help_text() -> str:
         for c, d, t in items:
             lines.append(f"    [cyan]{c:<10}[/] {d}")
     lines.append("")
-    lines.append("[dim]ctrl+p  command palette     в†‘в†“ history      В· in processes table:[/]")
-    lines.append("[dim]  Enter details, K kill, S stop, R restart, / search[/]")
+    lines.append("[dim]0-5 toggle panels (0 all)     ctrl+p palette     ↑↓ history[/]")
+    lines.append("[dim]in processes table: Enter details, K kill, S stop, R restart, t sort, / search[/]")
+    lines.append("[dim]!shell <cmd> — system shell (requires --enable-shell, per-command confirm)[/]")
     return "\n".join(lines)
 
 

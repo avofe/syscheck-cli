@@ -25,10 +25,10 @@ def show_sys() -> None:
     console.print()
     quick = providers.system_quick()
     print_header("summary")
-    console.print(f"cpu         [{get_color_for_percent(quick['cpu_percent'])}]{quick['cpu_percent']}%[/]")
-    console.print(f"ram         [{get_color_for_percent(quick['ram_percent'])}]{quick['ram_percent']}%[/]  (free {bytes_to_human(quick['ram_available'])})")
+    console.print(f"cpu         [{get_color_for_percent(quick['cpu_percent'], 'cpu')}]{quick['cpu_percent']}%[/]")
+    console.print(f"ram         [{get_color_for_percent(quick['ram_percent'], 'mem')}]{quick['ram_percent']}%[/]  (free {bytes_to_human(quick['ram_available'])})")
     if quick.get("main_percent") is not None:
-        console.print(f"disk        [{get_color_for_percent(quick['main_percent'])}]{quick['main_percent']}%[/]  (free {bytes_to_human(quick['main_free'])})")
+        console.print(f"disk        [{get_color_for_percent(quick['main_percent'], 'disk')}]{quick['main_percent']}%[/]  (free {bytes_to_human(quick['main_free'])})")
     if quick.get("net_sent") is not None:
         console.print(f"network     sent {bytes_to_human(quick['net_sent'])}  recv {bytes_to_human(quick['net_recv'])}")
 
@@ -38,6 +38,8 @@ def sys_cmd(
 ):
     """Информация о системе (ОС, uptime, hostname)."""
     if output_json:
-        console.print_json(json.dumps(providers.system_info(), indent=2))
+        data = providers.system_info()
+        data["summary"] = providers.system_quick()
+        console.print_json(json.dumps(data, indent=2, default=str))
     else:
         show_sys()

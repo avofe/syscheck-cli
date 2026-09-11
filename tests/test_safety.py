@@ -10,7 +10,7 @@ from syscheck import shellguard
 @pytest.fixture
 def isolated_config(monkeypatch, tmp_path):
     """Изолирует конфиг/лог shellguard в временной директории."""
-    monkeypatch.setenv("SYSSCHECK_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("SYSCHECK_CONFIG_DIR", str(tmp_path))
     shellguard.CONFIG_DIR = tmp_path
     shellguard.CONFIG_FILE = tmp_path / "config.json"
     shellguard.AUDIT_LOG = tmp_path / "shell_audit.log"
@@ -63,3 +63,15 @@ def test_decode_ping_output_utf8():
     raw = "time=32ms".encode("utf-8")
     out = providers._decode_ping_output(raw)
     assert "32" in out
+
+
+def test_config_dir_env_var_used(monkeypatch, tmp_path):
+    """SYSCHECK_CONFIG_DIR управляет директорией конфига !shell."""
+    monkeypatch.setenv("SYSCHECK_CONFIG_DIR", str(tmp_path))
+    import importlib
+    import sys
+
+    import syscheck.shellguard as sg
+    reloaded = importlib.reload(sg)
+    assert reloaded.CONFIG_DIR == tmp_path
+    assert reloaded.CONFIG_FILE == tmp_path / "config.json"
