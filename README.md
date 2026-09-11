@@ -10,7 +10,35 @@ CLI-утилита диагностики системы, как btop/htop, но
 
 ## Установка
 
-### Быстро (нужен Python 3.10+)
+### Без Python — одной командой
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/avofe/syscheck-cli/main/install.ps1 | iex
+```
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/avofe/syscheck-cli/main/install.sh | bash
+```
+
+Скрипт сам скачает последний готовый бинарник с GitHub Releases, положит
+его в пользовательский каталог (`%LOCALAPPDATA%\syscheck\bin` на Windows,
+`~/.local/bin` на macOS/Linux) и пропишет в PATH. **Python не нужен.**
+Открой новый терминал и запускай:
+
+```
+syscheck watch
+```
+
+Повторный запуск скрипта = обновление до последней версии.
+На каждый релиз к нему прилагаются и архивы:
+`syscheck-windows-x86_64.zip`, `syscheck-linux-x86_64.zip`,
+`syscheck-macos-arm64.zip` (бинарник + README внутри).
+
+### С Python (pip)
 
 ```bash
 pipx install syscheck-cli        # или: pip install syscheck-cli
@@ -21,21 +49,6 @@ syscheck                          # живой дашборд
 
 ```bash
 pip install git+https://github.com/avofe/syscheck-cli
-```
-
-### Без Python (Windows): готовый .exe одной строкой
-
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/avofe/syscheck-cli/main/scripts/install.ps1 | iex"
-```
-
-Скрипт скачивает `syscheck-windows-x86_64.exe` с GitHub Releases, кладёт в
-`%LOCALAPPDATA%\syscheck` и добавляет в PATH. Python на машине не нужен.
-
-### Без Python (macOS/Linux)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/avofe/syscheck-cli/main/scripts/install.sh | bash
 ```
 
 ### Из исходников
@@ -280,17 +293,17 @@ pipx install syscheck-cli     # or: pip install syscheck-cli
 syscheck                       # live dashboard
 ```
 
-No Python? Get a standalone binary from
-[GitHub Releases](https://github.com/avofe/syscheck-cli/releases):
+No Python? Install with one command (standalone binaries from
+[GitHub Releases](https://github.com/avofe/syscheck-cli/releases)):
 
 ```powershell
 # Windows
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/avofe/syscheck-cli/main/scripts/install.ps1 | iex"
+irm https://raw.githubusercontent.com/avofe/syscheck-cli/main/install.ps1 | iex
 ```
 
 ```bash
 # Linux / macOS
-curl -sSL https://raw.githubusercontent.com/avofe/syscheck-cli/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/avofe/syscheck-cli/main/install.sh | bash
 ```
 
 ### Features

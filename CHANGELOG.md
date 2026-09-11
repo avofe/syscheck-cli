@@ -8,6 +8,25 @@
 
 (плановое)
 
+## [0.6.1] — 2026-09-11
+
+### Доставка без Python: установка одной командой
+
+- `install.ps1` (Windows, без админки) — качает `syscheck-windows-x86_64.exe`
+  с последнего релиза в `%LOCALAPPDATA%\syscheck\bin`, правит user-PATH:
+  ```
+  irm https://raw.githubusercontent.com/avofe/syscheck-cli/main/install.ps1 | iex
+  ```
+- `install.sh` (macOS/Linux) — ставит бинарь в `~/.local/bin`:
+  ```
+  curl -fsSL https://raw.githubusercontent.com/avofe/syscheck-cli/main/install.sh | bash
+  ```
+- CI при теге дополнительно кладёт в Release zip-архивы
+  (`syscheck-windows-x86_64.zip`, `...-linux-x86_64.zip`, `...-macos-arm64.zip`)
+  с бинарником и README внутри
+- Убраны устаревшие `scripts/install.ps1`/`scripts/install.sh`
+  (второй требовал Python); README переведён на новые однострочники
+
 ## [0.6.0] — 2026-09-11
 
 ### Волна 2: реальный GPU, температуры и живые тренды

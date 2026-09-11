@@ -58,6 +58,24 @@ jobs:
           mkdir -p dist-final
           cp "${{ matrix.bin }}" "dist-final/${{ matrix.asset }}"
           chmod +x "dist-final/${{ matrix.asset }}"
+      - name: package zip
+        shell: bash
+        run: |
+          cp packaging/release-README.txt dist-final/README.txt
+          python - <<'EOF'
+          import os, shutil
+          for a in os.listdir("dist-final"):
+              if a.endswith(".zip") or a == "README.txt":
+                  continue
+              base, ext = os.path.splitext(a)
+              inner = "syscheck.exe" if ext == ".exe" else "syscheck"
+              zdir = os.path.join("dist-final", base + "-tmp")
+              os.makedirs(zdir, exist_ok=True)
+              shutil.copy(os.path.join("dist-final", a), os.path.join(zdir, inner))
+              shutil.copy(os.path.join("dist-final", "README.txt"), os.path.join(zdir, "README.txt"))
+              shutil.make_archive(os.path.join("dist-final", base), "zip", zdir)
+          EOF
+          rm -rf dist-final/README.txt dist-final/*-tmp
       - name: attach to release
         uses: softprops/action-gh-release@v2
         with:
