@@ -1,5 +1,10 @@
 ﻿# syscheck
 
+[![CI](https://github.com/avofe/syscheck-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/avofe/syscheck-cli/actions)
+[![PyPI version](https://img.shields.io/pypi/v/syscheck-cli.svg)](https://pypi.org/project/syscheck-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/syscheck-cli.svg)](https://pypi.org/project/syscheck-cli/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 CLI-утилита диагностики системы, как btop/htop, но с рабочими командами.
 Минималистичный ASCII-вывод: без рамок и emoji, только суть.
 
@@ -188,6 +193,8 @@ git push origin main --tags
 
 MIT
 
+---
+
 ## Плагины
 
 Свои команды добавляются через плагины:
@@ -221,3 +228,63 @@ syscheck sys          # общее состояние системы
 syscheck watch        # живой дашборд
 syscheck proc --sort ram   # кто ест память
 ```
+
+---
+
+## English (for international users)
+
+**syscheck** — a system diagnostics tool with a live TUI dashboard (btop/WinMon
+style) and simple CLI commands. No GUI, no dependencies beyond the terminal.
+
+### Quick start
+
+```bash
+pipx install syscheck-cli     # or: pip install syscheck-cli
+syscheck                       # live dashboard
+```
+
+No Python? Get a standalone binary from
+[GitHub Releases](https://github.com/avofe/syscheck-cli/releases):
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/avofe/syscheck-cli/main/scripts/install.ps1 | iex"
+```
+
+```bash
+# Linux / macOS
+curl -sSL https://raw.githubusercontent.com/avofe/syscheck-cli/main/scripts/install.sh | bash
+```
+
+### Features
+
+- **TUI dashboard**: CPU, MEMORY, GPU, STORAGE, NETWORK, BATTERY, PROCESSES panels,
+  live updates every 2s. Toggle panels with `1`–`5` + Enter, open the command
+  palette with `Ctrl+P`, run any command from the input line.
+- **CLI commands**: `syscheck cpu|ram|disk|net|proc|temp|sys|all|watch`
+  (each supports `--json`).
+- **Process details**: browse the process table, `Enter` opens a detail card,
+  sort with `s`, filter with `f`.
+- **Plugins**: drop a `.py` file into `syscheck/plugins/` to add commands.
+- **`!shell`**: optional shell access from the TUI, disabled by default and
+  audited (`~/.syscheck/shell_audit.log`).
+
+### Development
+
+```bash
+git clone https://github.com/avofe/syscheck-cli
+cd syscheck-cli
+pip install -e .[dev]
+pytest          # run the test suite
+```
+
+Build standalone binaries for Windows/Linux/macOS, publish to PyPI — all
+automatically. Just tag a release and push:
+
+```bash
+git tag v0.4.0 && git push origin main --tags
+```
+
+### License
+
+MIT
